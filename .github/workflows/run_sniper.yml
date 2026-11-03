@@ -1,0 +1,49 @@
+name: Reddit Micro-Job Sniper Bot
+
+on:
+  schedule:
+    # Runs every 15 minutes (offset from minute 0 to reduce GitHub Actions queue delay)
+    - cron: '2,17,32,47 * * * *'
+  workflow_dispatch: # Allows manual 1-click testing from the GitHub Actions tab
+
+permissions:
+  contents: write # Required so the bot can commit updated seen_posts.txt back to your repo
+
+jobs:
+  snipe-micro-jobs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 1. Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 2. Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 3. Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: 4. Ensure seen_posts.txt Exists
+        run: |
+          touch seen_posts.txt
+
+      - name: 5. Run Reddit Sniper & Solution Generator
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          python sniper_bot.py
+
+      - name: 6. Commit & Push Updated seen_posts.txt (Deduplication)
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add seen_posts.txt
+          git diff --staged --quiet || (git commit -m "chore: update seen_posts.txt [skip ci]" && git pull --rebase origin ${{ github.ref_name }} && git push)
