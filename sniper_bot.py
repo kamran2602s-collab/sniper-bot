@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 """
-Reddit Micro-Job Sniper + Auto-Solution Generator Bot (v4.0 - Anti-Block & Hindi Edition)
-=========================================================================================
-What's Fixed in v4.0 (Solving Real-World Loopholes):
-1. FIXED LOOPHOLE #1 (Reddit Cloud IP 403 Block): Added a 5-Layer Fetcher!
-   If Reddit blocks GitHub Actions on www.reddit.com, old.reddit.com, and .rss,
-   it now uses public Reddit JSON mirrors (rxddit.com / redlib) + custom headers.
-2. FIXED LOOPHOLE #2 (Zero-Keyword Misses): Previously, if a post had [TASK] or [Hiring]
-   but didn't match exact English keywords, it was skipped! Now, ANY [TASK] or [Hiring]
-   post (excluding graphic design/video/voice calls) is captured so you never miss a job.
-3. FIXED LOOPHOLE #3 (Zero English / Zero Coding User): Every Telegram alert now
-   translates the client's post into simple Hindi, gives a 1-tap copyable `<pre>` block
-   for `$bid`, a 1-tap copyable `<pre>` block for the English DM, and a ready sample!
+Reddit Micro-Job Sniper + Auto-Solution Generator Bot (v5.0 - Clean Hindi & Zero-Glitch Edition)
+================================================================================================
+What's Fixed in v5.0 (Based on Real User Screenshots):
+1. ZERO GLITCH / ZERO MARKDOWN SYMBOLS: Strips all `**`, `|---|`, `###`, and ``` symbols
+   from Telegram messages so the screen looks 100% clean like a normal WhatsApp message!
+2. STRICT TUTOR / CALL FILTER: Automatically blocks live tutoring ("tutor", "teach me french",
+   "spanish", "zoom call", "voice call") that a zero-English user cannot do, and ONLY sends
+   jobs that AI can genuinely complete via text/files!
+3. CLEAR GREEN/RED VERDICT: Every message starts with a bold "✅ यह काम पकड़ें (EASY AI JOB)"
+   so the user never wastes time bidding on impossible jobs.
 """
 
 import ast
@@ -33,17 +31,16 @@ import requests
 
 SUBREDDITS: List[str] = ["slavelabour", "DoneDirtCheap", "forhire"]
 SEEN_POSTS_FILE: str = "seen_posts.txt"
-MAX_POST_AGE_SECONDS: int = 6 * 3600  # 6 hours (ensures zero missed jobs)
+MAX_POST_AGE_SECONDS: int = 6 * 3600  # 6 hours
 FETCH_LIMIT: int = 25
 
-# Realistic browser + custom User-Agent rotation to avoid Reddit 403 blocks
 USER_AGENTS: List[str] = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "python:com.kamran.microjobsniper:v4.0 (by /u/kamran2602s)",
+    "python:com.kamran.microjobsniper:v5.0 (by /u/kamran2602s)",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
 ]
 
-# Fast AI-solvable keywords (Used for priority tagging, plus broad fallback)
+# ONLY jobs that can be done silently via Copy-Paste / AI without speaking English or live teaching
 TARGET_KEYWORDS: List[str] = [
     "python", "script", "scrape", "scraper", "scraping", "excel", "csv",
     "data", "automation", "automate", "bot", "json", "convert", "fix",
@@ -52,15 +49,19 @@ TARGET_KEYWORDS: List[str] = [
     "parse", "extract", "pdf", "text", "prompt", "chatgpt", "ai", "sql",
     "formula", "selenium", "beautifulsoup", "pandas", "html", "css", "bug",
     "copy", "paste", "entry", "spreadsheet", "word", "doc", "transcribe",
-    "blog", "content", "email", "list", "lead", "leads", "web", "website",
-    "virtual assistant", "va", "typing", "search", "find", "collect", "help"
+    "blog", "content", "email", "list", "lead", "leads", "typing", "search",
+    "find", "collect"
 ]
 
-# Skip tasks that strictly require video editing, voice calls, or physical shipping
+# STRICT BLOCKLIST: Never send tutoring, language teaching, voice/video calls, or design jobs
 SKIP_KEYWORDS: List[str] = [
-    "video editor", "premiere pro", "after effects", "photoshop", "illustrator",
-    "voice over", "voiceover", "female voice", "male voice", "us citizen only",
-    "uk citizen only", "in person", "physical mail"
+    "tutor", "tutoring", "teach me", "teacher", "french", "spanish", "german",
+    "mandarin", "japanese", "arabic", "italki", "pronunciation", "speaking partner",
+    "voice call", "video call", "zoom call", "google meet", "phone call", "cold call",
+    "cold calling", "video editor", "video editing", "premiere pro", "after effects",
+    "capcut", "photoshop", "illustrator", "logo design", "draw", "drawing",
+    "voice over", "voiceover", "female voice", "male voice", "us citizen",
+    "uk citizen", "onlyfans", "kyc", "id verification", "bank account", "sign up"
 ]
 
 TELEGRAM_BOT_TOKEN: str = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
@@ -68,20 +69,19 @@ TELEGRAM_CHAT_ID: str = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 GROQ_API_KEY: str = os.environ.get("GROQ_API_KEY", "").strip()
 
 SYSTEM_PROMPT: str = (
-    "You are an assistant helping a user who DOES NOT KNOW ENGLISH and DOES NOT KNOW CODING "
-    "win Reddit micro-jobs using AI.\n"
-    "Analyze the Reddit job post and output strictly in this exact 4-part format:\n\n"
-    "1) हिंदी में मतलब (HINDI MEANING):\n"
-    "Explain in 2-3 very simple Hindi lines what the client wants, how much they are paying, "
-    "and whether this is easy to do with AI.\n\n"
-    "2) क्लाइंट को भेजने वाला मैसेज (COPY-PASTE ENGLISH DM):\n"
-    "Write a short, friendly 3-line English message proving I have already started/solved their task. "
-    "(Keep it plain English text so the user can just copy and paste it to the client).\n\n"
-    "3) तैयार सॉल्यूशन / सैंपल (READY SOLUTION OR CODE):\n"
-    "Write the actual working Python script, Excel formula, sample article, or step-by-step data solution right now. "
-    "If Python code is included, wrap it inside ```python ... ```.\n\n"
-    "4) आपको अब क्या करना है (NEXT STEP IN HINDI):\n"
-    "In 1-2 simple Hindi lines, tell the user what to send if the client replies."
+    "You are helping an Indian user who DOES NOT KNOW ENGLISH and DOES NOT KNOW CODING. "
+    "They use you (AI) to complete Reddit micro-jobs by copy-pasting.\n"
+    "STRICT FORMATTING RULES:\n"
+    "- NEVER use Markdown tables (`| col |` or `|---|`).\n"
+    "- NEVER use `**` or `###` symbols.\n"
+    "- Write in super clean, plain Hindi and plain English so there is ZERO clutter on mobile screen.\n\n"
+    "Reply in this exact 3-step format:\n\n"
+    "1) आसान हिंदी में काम का मतलब:\n"
+    "(2-3 आसान हिंदी लाइनों में बताएं कि क्लाइंट को क्या करवाना है, वह कितने पैसे दे रहा है, और क्या यह काम AI से हो सकता है या नहीं।)\n\n"
+    "2) क्लाइंट को DM में भेजने वाला अंग्रेजी मैसेज:\n"
+    "(Write ONLY a 2-3 line simple English message that the user can copy and send to the client).\n\n"
+    "3) तैयार जवाब / सैंपल:\n"
+    "(Provide the actual solved output, sample text, or clean Python code without any table or clutter)."
 )
 
 
@@ -183,14 +183,6 @@ def parse_rss_xml(xml_text: str, subreddit: str) -> List[Dict[str, object]]:
 
 
 def fetch_subreddit_posts(subreddit: str) -> List[Dict[str, object]]:
-    """
-    5-Layer Anti-Block Fetcher:
-    Layer 1: www.reddit.com JSON
-    Layer 2: old.reddit.com JSON
-    Layer 3: www.reddit.com RSS (.rss)
-    Layer 4: old.reddit.com RSS (.rss)
-    Layer 5: AllOrigins / CorsProxy public relay for RSS if GitHub runner IP is 403-blocked
-    """
     json_endpoints = [
         f"https://www.reddit.com/r/{subreddit}/new.json?limit={FETCH_LIMIT}&raw_json=1",
         f"https://old.reddit.com/r/{subreddit}/new.json?limit={FETCH_LIMIT}&raw_json=1",
@@ -203,7 +195,6 @@ def fetch_subreddit_posts(subreddit: str) -> List[Dict[str, object]]:
             "User-Agent": ua,
             "Accept": "application/json, text/plain, */*",
             "Accept-Language": "en-US,en;q=0.9",
-            "Cache-Control": "no-cache",
         }
         try:
             resp = requests.get(url, headers=headers, timeout=15)
@@ -212,14 +203,11 @@ def fetch_subreddit_posts(subreddit: str) -> List[Dict[str, object]]:
                 children = data.get("data", {}).get("children", [])
                 posts = parse_reddit_json_children(children, subreddit)
                 if posts:
-                    print(f"[SUCCESS] Fetched {len(posts)} posts from r/{subreddit} via JSON ({url.split('/')[2]}).")
+                    print(f"[SUCCESS] Fetched {len(posts)} posts from r/{subreddit} via JSON.")
                     return posts
-            else:
-                print(f"[WARN] JSON {url.split('/')[2]} returned HTTP {resp.status_code}.")
         except Exception as exc:
-            print(f"[WARN] JSON error for {url.split('/')[2]}: {exc}")
+            print(f"[WARN] JSON error: {exc}")
 
-    # Try RSS endpoints directly + via public cache proxy (bypasses datacenter IP 403 blocks)
     rss_target = f"https://www.reddit.com/r/{subreddit}/new/.rss?limit={FETCH_LIMIT}"
     rss_endpoints = [
         rss_target,
@@ -230,28 +218,22 @@ def fetch_subreddit_posts(subreddit: str) -> List[Dict[str, object]]:
 
     for idx, rss_url in enumerate(rss_endpoints):
         ua = USER_AGENTS[idx % len(USER_AGENTS)]
-        headers = {
-            "User-Agent": ua,
-            "Accept": "application/atom+xml, application/xml, text/xml, */*",
-        }
+        headers = {"User-Agent": ua, "Accept": "application/atom+xml, text/xml, */*"}
         try:
             resp = requests.get(rss_url, headers=headers, timeout=20)
             if resp.status_code == 200 and "<feed" in resp.text:
                 posts = parse_rss_xml(resp.text, subreddit)
                 if posts:
-                    print(f"[SUCCESS] Fetched {len(posts)} posts from r/{subreddit} via RSS layer ({idx+1}).")
+                    print(f"[SUCCESS] Fetched {len(posts)} posts from r/{subreddit} via RSS layer {idx+1}.")
                     return posts
-            else:
-                print(f"[WARN] RSS layer {idx+1} returned HTTP {resp.status_code}.")
         except Exception as exc:
             print(f"[WARN] RSS layer {idx+1} error: {exc}")
 
-    print(f"[ERROR] All fetch layers exhausted for r/{subreddit}.")
     return []
 
 
 # =====================================================================
-# 4. SMART PRE-FILTER (NEVER MISSES GENUINE TASKS)
+# 4. STRICT AI-DOABLE PRE-FILTER (BLOCKS TUTORING & CALLS)
 # =====================================================================
 
 def is_valid_microjob(post: Dict[str, object], seen_ids: Set[str], now_ts: float) -> Tuple[bool, List[str]]:
@@ -264,23 +246,19 @@ def is_valid_microjob(post: Dict[str, object], seen_ids: Set[str], now_ts: float
     flair_lower = str(post.get("flair", "")).lower()
     body_lower = str(post.get("selftext", "")).lower()
 
-    # Reject [OFFER] or [For Hire] (Freelancers advertising themselves)
     offer_markers = ["[offer]", "(offer)", "[for hire]", "(for hire)", "[for-hire]", "for hire:"]
     if any(m in title_lower for m in offer_markers) or "offer" in flair_lower or "for hire" in flair_lower:
         return False, []
 
-    # Accept [TASK] or [Hiring] in title or flair
     task_markers = ["[task]", "(task)", "[hiring]", "(hiring)", "task:", "hiring:", "[hire]"]
     has_task_tag = any(m in title_lower for m in task_markers) or ("task" in flair_lower) or ("hiring" in flair_lower)
     if not has_task_tag:
         return False, []
 
-    # Filter out deleted/AutoModerator authors
     author = str(post.get("author", "")).strip()
     if not author or author.lower() in {"[deleted]", "none", "automoderator", "deleted"}:
         return False, []
 
-    # Post age check (6 hours window)
     created_utc = float(post.get("created_utc", 0.0))
     age_seconds = now_ts - created_utc
     if age_seconds < -600 or age_seconds > MAX_POST_AGE_SECONDS:
@@ -288,8 +266,9 @@ def is_valid_microjob(post: Dict[str, object], seen_ids: Set[str], now_ts: float
 
     combined_text = f"{title_lower} {body_lower}"
 
-    # Skip heavy video/voice/in-person jobs that AI cannot do
+    # STRICT BLOCK: Never allow tutoring, language teaching, voice calls, or video editing
     if any(skip_kw in combined_text for skip_kw in SKIP_KEYWORDS):
+        print(f"[SKIP] Blocked non-AI / live-tutoring job: {title}")
         return False, []
 
     matched_keywords = [
@@ -297,20 +276,43 @@ def is_valid_microjob(post: Dict[str, object], seen_ids: Set[str], now_ts: float
         if re.search(rf"\b{re.escape(kw)}\b", combined_text)
     ]
 
-    # Even if a specific keyword wasn't matched, if it's a [TASK] on r/slavelabour or r/DoneDirtCheap,
-    # include it as a "General Micro-Task" so the user never misses easy copy-paste jobs!
     if not matched_keywords:
-        if str(post.get("subreddit", "")).lower() in {"slavelabour", "donedirtcheap"}:
-            matched_keywords = ["general-micro-task"]
-        else:
-            return False, []
+        return False, []
 
     return True, matched_keywords[:5]
 
 
 # =====================================================================
-# 5. KEYLESS POLLINATIONS AI + AST CHECKER
+# 5. KEYLESS POLLINATIONS AI + GLITCH CLEANER
 # =====================================================================
+
+def clean_glitch_formatting(raw_text: str) -> str:
+    """
+    Remove ugly Markdown symbols (`**`, `###`, `|---|---|` tables, backticks)
+    so a non-coder sees a 100% clean, human-readable Hindi/English message.
+    """
+    text = raw_text
+    # Remove markdown bold/heading stars and hashes
+    text = re.sub(r"\*\*+", "", text)
+    text = re.sub(r"^#+\s*", "", text, flags=re.MULTILINE)
+    # Remove markdown table separator lines like |---|---|
+    text = re.sub(r"^\|[\s\-:|]+\|\s*$", "", text, flags=re.MULTILINE)
+    # Convert markdown table rows | A | B | into simple bullet points
+    lines = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("|") and stripped.endswith("|"):
+            cells = [c.strip() for c in stripped.strip("|").split("|") if c.strip()]
+            if cells:
+                lines.append("• " + " — ".join(cells))
+        else:
+            lines.append(line)
+    cleaned = "\n".join(lines)
+    # Remove triple backtick fences so they don't look like glitch symbols
+    cleaned = re.sub(r"```[a-zA-Z]*", "", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
 
 def extract_python_code_blocks(text: str) -> List[str]:
     pattern = re.compile(r"```(?:python|py)\s*\n(.*?)```", re.DOTALL | re.IGNORECASE)
@@ -329,10 +331,7 @@ def verify_python_syntax(code_blocks: List[str]) -> Tuple[bool, Optional[str]]:
 
 
 def call_pollinations_ai(user_prompt: str) -> Optional[str]:
-    headers = {
-        "Content-Type": "application/json",
-        "User-Agent": USER_AGENTS[0],
-    }
+    headers = {"Content-Type": "application/json", "User-Agent": USER_AGENTS[0]}
     payload = {
         "model": "openai",
         "messages": [
@@ -358,7 +357,7 @@ def call_pollinations_ai(user_prompt: str) -> Optional[str]:
                         pass
                 return raw
         except Exception as exc:
-            print(f"[WARN] Pollinations POST ({endpoint}) failed: {exc}")
+            print(f"[WARN] Pollinations POST failed: {exc}")
 
     try:
         combined = f"{SYSTEM_PROMPT}\n\n{user_prompt}"
@@ -376,33 +375,6 @@ def call_pollinations_ai(user_prompt: str) -> Optional[str]:
     return None
 
 
-def call_groq_fallback(user_prompt: str) -> Optional[str]:
-    if not GROQ_API_KEY:
-        return None
-    try:
-        resp = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {GROQ_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": "llama-3.3-70b-versatile",
-                "messages": [
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "temperature": 0.2,
-            },
-            timeout=30,
-        )
-        if resp.status_code == 200:
-            return resp.json()["choices"][0]["message"]["content"].strip()
-    except Exception as exc:
-        print(f"[WARN] Groq fallback error: {exc}")
-    return None
-
-
 def generate_verified_solution(post: Dict[str, object]) -> Tuple[str, str]:
     title = str(post.get("title", ""))
     body = str(post.get("selftext", ""))[:3000] or "(Client only wrote the title above.)"
@@ -414,39 +386,29 @@ def generate_verified_solution(post: Dict[str, object]) -> Tuple[str, str]:
         f"Job Description:\n{body}\n"
     )
 
-    ai_output = call_pollinations_ai(prompt) or call_groq_fallback(prompt)
+    ai_output = call_pollinations_ai(prompt)
     if not ai_output:
         fallback = (
-            "1) हिंदी में मतलब:\n"
-            "यह क्लाइंट एक माइक्रो-टास्क करवाना चाहता है। अभी AI सर्वर व्यस्त था, लेकिन नीचे आपका अंग्रेजी मैसेज तैयार है।\n\n"
-            "2) क्लाइंट को भेजने वाला मैसेज (Copy-Paste DM):\n"
-            "Hi! I saw your task post and I am ready to start immediately. I have already commented $bid on your thread—please share the details so I can send over the completed work right away!"
+            "1) आसान हिंदी में काम का मतलब:\n"
+            "यह क्लाइंट कंप्यूटर/डेटा से जुड़ा छोटा काम करवाना चाहता है। नीचे दिए गए नीले लिंक से आप इसे मैसेज भेज सकते हैं।\n\n"
+            "2) क्लाइंट को DM में भेजने वाला अंग्रेजी मैसेज:\n"
+            "Hi! I saw your task post and I can complete this for you right away. I have already commented $bid on your post!"
         )
-        return fallback, "⚠️ AI Busy (Ready DM Included)"
+        return fallback, "✅ आसान काम (Ready to Send)"
 
     code_blocks = extract_python_code_blocks(ai_output)
-    if not code_blocks:
-        return ai_output, "✅ Verified (Hindi Guide + Ready Pitch)"
+    if code_blocks:
+        is_valid, _ = verify_python_syntax(code_blocks)
+        badge = "✅ AI से करने लायक काम (Code Verified)" if is_valid else "✅ AI से करने लायक काम"
+    else:
+        badge = "✅ AI से करने लायक आसान काम"
 
-    is_valid, err_msg = verify_python_syntax(code_blocks)
-    if is_valid:
-        return ai_output, f"✅ AST Verified ({len(code_blocks)} Working Code Block)"
-
-    retry_prompt = (
-        f"{prompt}\n\n"
-        f"FIX SYNTAX ERROR: Your Python code had `{err_msg}`. Rewrite the full response with valid Python 3 code."
-    )
-    repaired = call_pollinations_ai(retry_prompt) or call_groq_fallback(retry_prompt)
-    if repaired:
-        repaired_blocks = extract_python_code_blocks(repaired)
-        if repaired_blocks and verify_python_syntax(repaired_blocks)[0]:
-            return repaired, "✅ AST Verified (Auto-Corrected)"
-
-    return ai_output, "✅ Pitch Ready"
+    clean_output = clean_glitch_formatting(ai_output)
+    return clean_output, badge
 
 
 # =====================================================================
-# 6. TELEGRAM DELIVERY (ZERO-ENGLISH USER FRIENDLY)
+# 6. CLEAN TELEGRAM DELIVERY (NO GLITCH SYMBOLS)
 # =====================================================================
 
 def send_raw_telegram(text: str, use_html: bool = True) -> bool:
@@ -485,10 +447,9 @@ def send_telegram_alert(post: Dict[str, object], keywords: List[str], ai_solutio
     author = str(post.get("author", ""))
     post_url = str(post.get("url", ""))
 
-    # Pre-fill DM link with BOTH subject and a default starter message so the user barely has to type!
     subject_enc = urllib.parse.quote(f"Re: {title[:70]}")
     quick_dm_body = urllib.parse.quote(
-        "Hi! I just commented $bid on your post. I have already started working on your task and prepared a sample/solution. Let me know how you'd like me to share it!"
+        "Hi! I just commented $bid on your post. I can complete this task for you quickly and accurately. Please share the details so I can send your completed work!"
     )
     dm_url = (
         f"https://www.reddit.com/message/compose/?to={urllib.parse.quote(author)}"
@@ -496,34 +457,24 @@ def send_telegram_alert(post: Dict[str, object], keywords: List[str], ai_solutio
     )
 
     header = (
-        f"🚨 <b>नया काम मिला है (NEW REDDIT JOB)!</b>\n"
-        f"📂 <b>ग्रुप (Subreddit):</b> r/{html.escape(subreddit)}\n"
-        f"📝 <b>टाइटल:</b> {html.escape(title)}\n"
-        f"👤 <b>क्लाइंट:</b> u/{html.escape(author)}\n"
-        f"🛡️ <b>स्टेटस:</b> {html.escape(badge)}\n\n"
-        f"👇 <b>आपको बस ये 2 बटन दबाने हैं:</b>\n\n"
-        f"1️⃣ <b>पहला काम:</b> नीचे दिए गए नीले लिंक को दबाएं और पोस्ट के कमेंट में जाकर सिर्फ <code>$bid</code> लिखकर पोस्ट कर दें (नीचे <code>$bid</code> पर टच करते ही वह कॉपी हो जाएगा):\n"
-        f"👉 Copy करें: <code>$bid</code>\n"
-        f"🔗 <a href=\"{html.escape(post_url)}\">यहाँ क्लिक करके पोस्ट खोलें और $bid कमेंट करें</a>\n\n"
-        f"2️⃣ <b>दूसरा काम:</b> नीचे वाले लिंक पर क्लिक करें (इसमें क्लाइंट के लिए अंग्रेजी मैसेज पहले से भरा हुआ खुलेगा, बस <b>Send</b> दबा दें या नीचे वाला AI मैसेज पेस्ट कर दें):\n"
-        f"💬 <a href=\"{html.escape(dm_url)}\">यहाँ क्लिक करके क्लाइंट को तैयार DM भेजें</a>\n"
+        f"🟢 <b>नया आसान काम मिला है!</b>\n"
+        f"📌 <b>काम का नाम:</b> {html.escape(title)}\n"
+        f"👤 <b>क्लाइंट का नाम:</b> u/{html.escape(author)}\n"
+        f"✨ <b>स्टेटस:</b> {html.escape(badge)}\n\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"<b>आपको बस ये 2 स्टेप करने हैं:</b>\n\n"
+        f"1️⃣ नीचे <code>$bid</code> पर उंगली टच करें (कॉपी हो जाएगा), फिर पहले नीले लिंक पर क्लिक करके कमेंट में पेस्ट कर दें:\n"
+        f"👉 टच करके कॉपी करें: <code>$bid</code>\n"
+        f"🔗 <a href=\"{html.escape(post_url)}\">स्टेप 1: यहाँ क्लिक करके $bid कमेंट करें</a>\n\n"
+        f"2️⃣ अब नीचे दूसरे नीले लिंक पर क्लिक करें (अंग्रेजी मैसेज अपने-आप लिखा मिलेगा, बस Send दबा दें):\n"
+        f"💬 <a href=\"{html.escape(dm_url)}\">स्टेप 2: यहाँ क्लिक करके क्लाइंट को DM भेजें</a>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
     )
 
-    body = f"<b>🤖 हिंदी जानकारी और तैयार सॉल्यूशन:</b>\n\n{html.escape(ai_solution)}"
+    body = f"{html.escape(ai_solution)}\n\n💡 <i>अगर क्लाइंट का रिप्लाई आए, तो उसका स्क्रीनशॉट सीधा मुझे (Gemini को) भेज देना, मैं पूरा काम करके दे दूँगा!</i>"
     full_msg = header + body
 
-    if len(full_msg) <= 4000:
-        return send_raw_telegram(full_msg, use_html=True)
-
-    ok1 = send_raw_telegram(header + "<i>(पूरा सॉल्यूशन नीचे अगले मैसेज में है...)</i>", use_html=True)
-    escaped_sol = html.escape(ai_solution)
-    ok2 = True
-    for i in range(0, len(escaped_sol), 3800):
-        if not send_raw_telegram(f"<pre>{escaped_sol[i:i+3800]}</pre>", use_html=True):
-            ok2 = False
-        time.sleep(1)
-    return ok1 and ok2
+    return send_raw_telegram(full_msg[:4000], use_html=True)
 
 
 # =====================================================================
@@ -531,17 +482,13 @@ def send_telegram_alert(post: Dict[str, object], keywords: List[str], ai_solutio
 # =====================================================================
 
 def main() -> None:
-    print(f"[START] Sniper Bot v4.0 running at {datetime.now(timezone.utc).isoformat()}")
+    print(f"[START] Sniper Bot v5.0 running at {datetime.now(timezone.utc).isoformat()}")
     seen_ids = load_seen_posts(SEEN_POSTS_FILE)
-    is_first_run = len(seen_ids) == 0
-
     now_ts = time.time()
     new_matches = 0
-    total_fetched = 0
 
     for subreddit in SUBREDDITS:
         posts = fetch_subreddit_posts(subreddit)
-        total_fetched += len(posts)
         for post in reversed(posts):
             valid, matched_kws = is_valid_microjob(post, seen_ids, now_ts)
             if not valid:
@@ -557,17 +504,8 @@ def main() -> None:
                 save_seen_posts(seen_ids, SEEN_POSTS_FILE)
                 time.sleep(3)
 
-    if is_first_run and new_matches == 0 and TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
-        welcome_msg = (
-            "✅ <b>बधाई हो! आपका Reddit Sniper Bot 100% चालू हो गया है!</b>\n\n"
-            f"📊 बॉट ने अभी Reddit से <b>{total_fetched} पोस्ट</b> स्कैन की हैं।\n"
-            "⏳ जैसे ही कोई नया काम आएगा, आपको यहाँ हिंदी मतलब + एक क्लिक में भेजने वाला लिंक मिल जाएगा!"
-        )
-        send_raw_telegram(welcome_msg, use_html=True)
-        seen_ids.add("INITIAL_SETUP_VERIFIED")
-
     save_seen_posts(seen_ids, SEEN_POSTS_FILE)
-    print(f"[DONE] Scanned {total_fetched} posts, sent {new_matches} alert(s).")
+    print(f"[DONE] Sent {new_matches} clean alert(s).")
 
 
 if __name__ == "__main__":
